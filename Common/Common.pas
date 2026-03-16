@@ -2335,16 +2335,12 @@ end;
 function MyFloatToStrSQL(p_rNumber: Real): String;
 // Pøevede reálné èíslo na text použitelný pro SQL skripty
 var
-  lsDecimalSeparator: Char;
-  lsThousandSeparator: Char;
+  LSettings: TFormatSettings;
 begin
-  lsDecimalSeparator := DecimalSeparator;
-  lsThousandSeparator := ThousandSeparator;
-  DecimalSeparator := '.';
-  ThousandSeparator := #0; // žádný oddìlovaè tisícù
-  Result := FloatToStrF(p_rNumber, ffNumber, 10, 5);
-  DecimalSeparator := lsDecimalSeparator;
-  ThousandSeparator := lsThousandSeparator;
+  LSettings := TFormatSettings.Create;
+  LSettings.DecimalSeparator := '.';
+  LSettings.ThousandSeparator := #0; // žádný oddìlovaè tisícù
+  Result := FloatToStrF(p_rNumber, ffNumber, 10, 5, LSettings);
 end;
 
 function MyStrToInt(p_sString: String): Integer;
@@ -5837,28 +5833,41 @@ const
     'SpecialBuild'
     );
 var
-  pHandle: UINT;
-  pSize: UINT;
-  pLength: UINT;
   i: Integer;
-  lsVersion: PChar;
-  pInfo: Pointer;
+  pSize, pHandle: DWORD;
+  VerBuf: TBytes;
+  Translat: Pointer;
+  TranslatSize: DWORD;
+  LangCharSet: string;
+  ResPtr: PChar;
+  ResSize: DWORD;
 begin
   pSize := GetFileVersionInfoSize(PChar(psFileName), pHandle);
-  lsVersion := StrAlloc(pSize);
-
-  try
-    GetFileVersionInfo(PChar(psFileName), 0, pSize, lsVersion);
-
-    for i := 1 to High(InfoArray) do
-    begin
-      VerQueryValue(lsVersion, PChar('\\StringFileInfo\040504E2\\' + InfoArray[i]), pInfo, pLength);
-      FileInfoArray[i] := PChar(pInfo);
-    end;
-  except
+  if pSize = 0 then
+  begin
+    Exit;
   end;
 
-  StrDispose(lsVersion);
+  SetLength(VerBuf, pSize);
+  if not GetFileVersionInfo(PChar(psFileName), pHandle, pSize, VerBuf) then
+  begin
+    Exit;
+  end;
+
+  for i := 1 to High(InfoArray) do
+  begin
+    if VerQueryValue(VerBuf, '\VarFileInfo\Translation', Translat, TranslatSize) then
+    begin
+      LangCharSet := Format('%.4x%.4x', [
+        LoWord(PLongInt(Translat)^),
+        HiWord(PLongInt(Translat)^)
+      ]);
+      if VerQueryValue(VerBuf, PChar('\StringFileInfo\' + LangCharSet + '\' + InfoArray[i]), Pointer(ResPtr), ResSize) then
+      begin
+        FileInfoArray[i] := ResPtr;
+      end;
+    end;
+  end;
 end;
 
 function TdmCommon.UpdateDatabaseConfiguration(p_sCode, p_sValue: String): Boolean;
